@@ -105,7 +105,7 @@ class MiniGPT4(Blip2Base):
         # print('Loading LLAMA Done')
 
         self.llama_proj = nn.Linear(
-            self.Qformer.config.hidden_size, self.llama_model.config.hidden_size
+            self.Qformer.config.hidden_size, 5120
         )
         self.max_txt_len = max_txt_len
         self.end_sym = end_sym
