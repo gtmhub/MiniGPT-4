@@ -110,14 +110,15 @@ class MiniGPT4(Blip2Base):
         self.max_txt_len = max_txt_len
         self.end_sym = end_sym
 
-        if prompt_path:
+        try:
+            if not prompt_path: raise ValueError
             with open(prompt_path, 'r') as f:
                 raw_prompts = f.read().splitlines()
             filted_prompts = [raw_prompt for raw_prompt in raw_prompts if "<ImageHere>" in raw_prompt]
             self.prompt_list = [prompt_template.format(p) for p in filted_prompts]
             print('Load {} training prompts'.format(len(self.prompt_list)))
             print('Prompt Example \n{}'.format(random.choice(self.prompt_list)))
-        else:
+        except:
             self.prompt_list = []
 
     def vit_to_cpu(self):
