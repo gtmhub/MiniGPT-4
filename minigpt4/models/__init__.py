@@ -13,6 +13,7 @@ from minigpt4.common.registry import registry
 from minigpt4.models.base_model import BaseModel
 from minigpt4.models.blip2 import Blip2Base
 from minigpt4.models.mini_gpt4 import MiniGPT4
+# from minigpt4.models.encoder import MiniGPT4Encoder
 from minigpt4.processors.base_processor import BaseProcessor
 
 

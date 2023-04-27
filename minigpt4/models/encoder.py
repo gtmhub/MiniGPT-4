@@ -7,12 +7,10 @@ import torch.nn as nn
 
 from minigpt4.common.registry import registry
 from minigpt4.models.blip2 import Blip2Base, disabled_train
-from minigpt4.models.modeling_llama import LlamaForCausalLM
-from transformers import LlamaTokenizer
 
 
 @registry.register_model("mini_gpt4")
-class MiniGPT4(Blip2Base):
+class MiniGPT4Encoder(Blip2Base):
     """
     BLIP2 GPT-LLAMA model.
     """
@@ -37,13 +35,10 @@ class MiniGPT4(Blip2Base):
         prompt_template="",
         max_txt_len=32,
         end_sym='\n',
-        low_resource=False,  # use 8 bit and put vit in cpu
-        device_8bit=0,  # the device of 8bit model should be set when loading and cannot be changed anymore.
     ):
         super().__init__()
 
         self.tokenizer = self.init_tokenizer()
-        self.low_resource = low_resource
 
         print('Loading VIT')
         self.visual_encoder, self.ln_vision = self.init_vision_encoder(
@@ -83,27 +78,6 @@ class MiniGPT4(Blip2Base):
             logging.info("freeze Qformer")
         print('Loading Q-Former Done')
 
-        print('Loading LLAMA')
-        self.llama_tokenizer = LlamaTokenizer.from_pretrained(llama_model, use_fast=False)
-        self.llama_tokenizer.pad_token = self.llama_tokenizer.eos_token
-
-        if self.low_resource:
-            self.llama_model = LlamaForCausalLM.from_pretrained(
-                llama_model,
-                torch_dtype=torch.float16,
-                load_in_8bit=True,
-                device_map={'': device_8bit}
-            )
-        else:
-            self.llama_model = LlamaForCausalLM.from_pretrained(
-                llama_model,
-                torch_dtype=torch.float16,
-            )
-
-        for name, param in self.llama_model.named_parameters():
-            param.requires_grad = False
-        print('Loading LLAMA Done')
-
         self.llama_proj = nn.Linear(
             self.Qformer.config.hidden_size, self.llama_model.config.hidden_size
         )
@@ -120,21 +94,12 @@ class MiniGPT4(Blip2Base):
         else:
             self.prompt_list = []
 
-    def vit_to_cpu(self):
-        self.ln_vision.to("cpu")
-        self.ln_vision.float()
-        self.visual_encoder.to("cpu")
-        self.visual_encoder.float()
-
     def encode_img(self, image):
-        device = image.device
-        if self.low_resource:
-            self.vit_to_cpu()
-            image = image.to("cpu")
-
         with self.maybe_autocast():
-            image_embeds = self.ln_vision(self.visual_encoder(image)).to(device)
-            image_atts = torch.ones(image_embeds.size()[:-1], dtype=torch.long).to(device)
+            image_embeds = self.ln_vision(self.visual_encoder(image))
+            image_atts = torch.ones(image_embeds.size()[:-1], dtype=torch.long).to(
+                image.device
+            )
 
             query_tokens = self.query_tokens.expand(image_embeds.shape[0], -1, -1)
             query_output = self.Qformer.bert(
@@ -221,7 +186,7 @@ class MiniGPT4(Blip2Base):
         return {"loss": loss}
 
     @classmethod
-    def from_config(cls, cfg, checkpoint_path = None):
+    def from_config(cls, cfg):
         vit_model = cfg.get("vit_model", "eva_clip_g")
         q_former_model = cfg.get("q_former_model", "https://storage.googleapis.com/sfr-vision-language-research/LAVIS/models/BLIP2/blip2_pretrained_flant5xxl.pth")
         img_size = cfg.get("image_size")
@@ -233,8 +198,6 @@ class MiniGPT4(Blip2Base):
         vit_precision = cfg.get("vit_precision", "fp16")
         freeze_vit = cfg.get("freeze_vit", True)
         freeze_qformer = cfg.get("freeze_qformer", True)
-        low_resource = cfg.get("low_resource", False)
-        device_8bit = cfg.get("device_8bit", 0)
 
         prompt_path = cfg.get("prompt_path", "")
         prompt_template = cfg.get("prompt_template", "")
@@ -255,12 +218,10 @@ class MiniGPT4(Blip2Base):
             prompt_path=prompt_path,
             prompt_template=prompt_template,
             max_txt_len=max_txt_len,
-            end_sym=end_sym,
-            low_resource=low_resource,
-            device_8bit=device_8bit,
+            end_sym=end_sym
         )
 
-        ckpt_path = checkpoint_path or cfg.get("ckpt", "")  # load weights of MiniGPT-4
+        ckpt_path = cfg.get("ckpt", "")  # load weights of MiniGPT-4
         if ckpt_path:
             print("Load BLIP2-LLM Checkpoint: {}".format(ckpt_path))
             ckpt = torch.load(ckpt_path, map_location="cpu")
